@@ -27,11 +27,11 @@ This Python project models the **sun’s path** and the **shadows it casts** usi
 ## 🖥️ How to Use
 
 Run the main script and choose a mode:
-1.- Shadow evolution for solstices, equinoxes, and in-between days across latitudes
-2.- Shadow evolution for a specific date and location
-3.- Yearly shadow evolution across latitudes at fixed hours
-4.- Yearly shadow evolution for a specific location and fixed time
-5.- Sunrise and sunset chart over the year for a given latitude
-6.- Sunrise and sunset time for a given day and latitude
+1. Shadow evolution for solstices, equinoxes, and in-between days across latitudes
+2. Shadow evolution for a specific date and location
+3. Yearly shadow evolution across latitudes at fixed hours
+4. Yearly shadow evolution for a specific location and fixed time
+5. Sunrise and sunset chart over the year for a given latitude
+6. Sunrise and sunset time for a given day and latitude
 
 
