@@ -63,6 +63,41 @@ def angle_rotation_earth(t):
     """
     return 2*math.pi*t+ math.pi + (t-(datetime(2025, 6, 21) - datetime(2025, 1, 1)).days) *2*math.pi/365.25
 
+def location_in_which_sunrays_orthogonal(t):
+    """
+    Calculate the geographic location (latitude, longitude) on Earth where the Sun's rays are orthogonal
+    at a given time t
+
+    Parameters:
+        t: Time parameter in days
+    
+    Returns:
+        A tuple containing:
+            - Latitude (in degrees) where the sun rays are orthogonal
+            - Longitude (in degrees) where the sun rays are orthogonal
+    """
+    # Compute the angle between the Earth and the Sun. This angle is defined such that:
+    #   - At the summer solstice (June 21), the angle is 0 radians.
+    #   - At the autumn equinox, the angle is π/2 radians (90 degrees).
+    angle_sun = angle_sun_earth(t)
+
+    # Given the Earth-Sun angle, construct the unit vector representing sunlight direction,
+    # but in the direction Earth to Sun. The sun ray lies in the XY-plane and is normal to Earth's surface
+    (x0, y0, z0) = np.array((math.cos(angle_sun), math.sin(angle_sun), 0))
+
+    #Rotate the resulting point over the Y axis to account for the tilt of Earth's rotation axis
+    (x1, y1, z1) = geom.rot_fix_y(EARTH_ROTATION_AXIS_ANGLE_RAD, x0, y0, z0)
+    
+    # Consider the plane z=z1 and get the polar coordinates of the point (x1,y1)
+    (r0, alpha0) = geom.cartesian2polar(x1,y1)
+
+    # Rotate the point (x1, y1) over the Z axis an angle which depends on the time t
+    (x2, y2) = geom.polar2cartesian(r0, alpha0 - angle_rotation_earth(t))
+
+    # Transform cartesian coordinates into spherical coordinates (latitude and longitud)
+    (r, latitude_rad, longitude_rad) = geom.cartesian2spherical(x2, y2, z1)
+    return (geom.radian2degree(latitude_rad), geom.radian2degree(longitude_rad))
+
 def get_time_in_days(month, day, hour, minute):
     """
     Convert a given date and time into a fractional day count within the year.
@@ -78,6 +113,45 @@ def get_time_in_days(month, day, hour, minute):
     """
     return sum(DAYS_IN_MONTH[:month-1]) + day + (hour + minute/60)/24
 
+def bisection_method(a, b, f, fa, fb, precision):
+    """
+    Find a root of the function f in the interval [a, b] using the bisection method.
+
+    Parameters:
+    - a, b: Interval endpoints where f(a) and f(b) have opposite signs (root bracket).
+    - f: Function for which to find the root.
+    - fa, fb: Precomputed values f(a) and f(b).
+    - precision: Desired precision for the root (stopping criterion based on |f(c)|).
+
+    Returns:
+    - c: Approximate root of f such that |f(c)| < precision.
+    - None: If f(a) and f(b) do not bracket a root (i.e., have the same sign).
+
+    Notes:
+    - Recursively bisects the interval, choosing subintervals that contain the root
+      based on the sign of function values at endpoints.
+    - Stops when the function value at midpoint c is within the desired precision.
+    """
+    if fa*fb >= 0:
+        print('a = ' + str(a) + ' b = ' + str(b) + ' f(a) = ' + str(fa) + ' f(b) = ' + str(fb))
+        return None
+    
+    c = (a+b)/2 # midpoint
+    fc = f(c) # precompute value: only one evaluation
+    if abs(fc) < precision:
+        return c
+    elif fc > 0:
+        if fa > fb:
+            return bisection_method(c, b, f, fc, fb, precision)
+        else:
+            return bisection_method(a, c, f, fa, fc, precision)
+
+    else:
+        if fa > fb:
+            return bisection_method(a, c, f, fa, fc, precision)
+        else:
+            return bisection_method(c, b, f, fc, fb, precision)
+   
 def init_function():
     return
 
@@ -260,87 +334,194 @@ def plot_shadow_hour(day_year, hour, minute, latitude_rad, longitude_rad, ax, po
     month, day = date.month, date.day
     plot_shadow(month, day, hour, minute, latitude_rad, longitude_rad, ax, points, 'HOUR')
 
-def bisection_method(a, b, f, fa, fb, precision):
+def plot_evolution_location_in_which_sunrays_orthogonal(i, ax):
     """
-    Find a root of the function f in the interval [a, b] using the bisection method.
+    Plot the location where the Sun's rays are orthogonal (subsolar point) on the Earth's map
+    for a specific hour `i` of the year.
 
     Parameters:
-    - a, b: Interval endpoints where f(a) and f(b) have opposite signs (root bracket).
-    - f: Function for which to find the root.
-    - fa, fb: Precomputed values f(a) and f(b).
-    - precision: Desired precision for the root (stopping criterion based on |f(c)|).
-
-    Returns:
-    - c: Approximate root of f such that |f(c)| < precision.
-    - None: If f(a) and f(b) do not bracket a root (i.e., have the same sign).
-
-    Notes:
-    - Recursively bisects the interval, choosing subintervals that contain the root
-      based on the sign of function values at endpoints.
-    - Stops when the function value at midpoint c is within the desired precision.
+        i (int): Index representing the hour since Jan 1st, 00:00 UTC (0 to 8759)
+        ax (matplotlib axis): The axis with a cartopy map projection to draw on
     """
-    if fa*fb >= 0:
-        print('a = ' + str(a) + ' b = ' + str(b) + ' f(a) = ' + str(fa) + ' f(b) = ' + str(fb))
-        return None
-    
-    c = (a+b)/2 # midpoint
-    fc = f(c) # precompute value: only one evaluation
-    if abs(fc) < precision:
-        return c
-    elif fc > 0:
-        if fa > fb:
-            return bisection_method(c, b, f, fc, fb, precision)
-        else:
-            return bisection_method(a, c, f, fa, fc, precision)
 
-    else:
-        if fa > fb:
-            return bisection_method(a, c, f, fa, fc, precision)
-        else:
-            return bisection_method(c, b, f, fc, fb, precision)
-            
-def get_sunrise_and_sunset_time(latitude_rad, month, day):
+    # Clear the previous frame
+    ax.clear()
+
+    # Add Earth map features
+    land = cfeature.NaturalEarthFeature(
+        'physical', 'land', '110m',
+        edgecolor='face',
+        facecolor='lightgreen'
+    )
+    ax.add_feature(land)
+    ax.coastlines()
+    ax.add_feature(cfeature.OCEAN)
+    ax.add_feature(cfeature.LAKES)
+    ax.add_feature(cfeature.BORDERS)
+    ax.set_global()
+
+    # Add parallels and meridians
+    ax.gridlines(draw_labels=True, linewidth=1, color='gray', alpha=0.5, linestyle='--')
+
+    # Tropic of Cancer
+    ax.plot(
+        [-180, 180], [EARTH_ROTATION_AXIS_ANGLE_DEG, EARTH_ROTATION_AXIS_ANGLE_DEG],
+        transform=ccrs.PlateCarree(), linestyle='--', linewidth=1, color='gray'
+    )
+
+    # Arctic Circle
+    ax.plot(
+        [-180, 180], [90 - EARTH_ROTATION_AXIS_ANGLE_DEG, 90 - EARTH_ROTATION_AXIS_ANGLE_DEG],
+        transform=ccrs.PlateCarree(), linestyle='--', linewidth=1, color='gray'
+    )
+
+    # Tropic of Capricorn
+    ax.plot(
+        [-180, 180], [-EARTH_ROTATION_AXIS_ANGLE_DEG, -EARTH_ROTATION_AXIS_ANGLE_DEG],
+        transform=ccrs.PlateCarree(), linestyle='--', linewidth=1, color='gray'
+    )
+
+    # Antarctic Circle
+    ax.plot(
+        [-180, 180], [-90 + EARTH_ROTATION_AXIS_ANGLE_DEG, -90 + EARTH_ROTATION_AXIS_ANGLE_DEG],
+        transform=ccrs.PlateCarree(), linestyle='--', linewidth=1, color='gray'
+    )
+
+    # Determine the current day and hour
+    day = i // 24
+    hour = i % 24
+
+    # Compute the subsolar point (latitude, longitude) for that specific hour
+    (latitude_deg, longitude_deg) = location_in_which_sunrays_orthogonal(day + hour / 24)
+
+    # Plot the subsolar point as a red dot
+    ax.plot(longitude_deg, latitude_deg, 'ro', transform=ccrs.Geodetic())
+
+    # Construct the date string for labeling
+    date = datetime(2025, 1, 1) + timedelta(days=day)
+    month, day = date.month, date.day
+
+    # Create and set the plot title with date and subsolar point info
+    date_label = MONTHS[month - 1] + ' ' + str(day) + ' UTC ' + str(hour).rjust(2, '0') + ':' + str(0).rjust(2, '0') + '\n'
+    latitude_label = "Latitud: " + f"{latitude_deg:.2f}°".rjust(7)
+    longitude_label = " Longitude: " + f"{longitude_deg:.2f}°".rjust(9)
+    plt.title(date_label + latitude_label + longitude_label)
+
+
+def generate_shadow_gifs_all_dates_all_latitudes():
     """
-    Calculate and print the sunrise and sunset times (in UTC) for a given location and date.
+    Generate and save GIF animations of daily shadow patterns for multiple latitudes and selected dates.
+    """
+    figure, ax = plt.subplots()
+    dates = [(2,3), (3,20), (5,4), (6,21), (8,6), (9,22), (11,6), (12,21)] # Solstices, equinoxes, and days in between
+    for i in range(1,18): # 80°, 70°, ..., -70°, -80°
+        count = 0
+        for date in dates:
+            count += 1
+            latitude_deg = 90 - 10 * i
+            longitude_deg = 0
+            latitude_rad = geom.degree2radian(latitude_deg)
+            longitude_rad = geom.degree2radian(longitude_deg)
+            month = date[0]
+            day = date[1]
+            print('Latitude: ' + str(round(latitude_deg)) + '° Longitude: ' + str(round(longitude_deg)) + '° ' + MONTHS[month-1] +' ' + str(day))
+
+            points=[]
+            ani = animation.FuncAnimation(
+                    figure,
+                    func = plot_shadow_day,
+                    frames=np.linspace(0, 1, 24*6*2 + 1),
+                    fargs=(month, day, latitude_rad, longitude_rad, ax, points),
+                    init_func=init_function
+                )
+            directory = 'shadow_evolution/lat'+str(round(latitude_deg))+'/fixed_day/'
+            os.makedirs(directory, exist_ok=True)  # Create folder if it doesn't exist
+            ani.save(directory + str(count)+'_lat'+str(round(latitude_deg))+'_long'+ str(round(longitude_deg))+MONTHS[month-1] + str(day)+'.gif', writer='pillow', fps=100) 
+
+def generate_shadow_gif_given_date(latitude_deg, longitude_deg, month, day):
+    """
+    Generate and save a GIF animation showing the shadow pattern over a full day
+    (24 hours) at a specific geographic location and date.
 
     Parameters:
-    - latitude_rad: Latitude of the location in radians.
+    - latitude_deg: Latitude in degrees.
+    - longitude_deg: Longitude in degrees.
     - month: Month of the year (1-12).
     - day: Day of the month.
-
-    Notes:
-    - The precision for the bisection method is set to 1 minute (1/(24*60)).
     """
-    # Convert the given date to a fractional day of the year
-    year_day = get_time_in_days(month, day, 0, 0)
-    # Define a function `f(t)` that represents the dot product between the
-    # position vector of the location at fractional time `year_day + t` and 
-    # the sun's vector projected onto the Earth's surface plane.
-    f = lambda t:  np.dot(np.array(position(latitude_rad, 0, year_day + t)),
-                            np.array((-math.cos(angle_sun_earth(year_day + t)), -math.sin(angle_sun_earth(year_day + t)), 0)))
+    figure, ax = plt.subplots()
+    latitude_rad = geom.degree2radian(latitude_deg)
+    longitude_rad = geom.degree2radian(longitude_deg)
     
-    # Use the bisection method to find:
-    #    * Sunrise time: root of f(t) between midnight and noon (0 to 0.5 fraction of day).
-    #    * Sunset time: root of f(t) between noon and next midnight (0.5 to 1 fraction of day).
-    midnight = 0
-    noon = 0.5 
-    midnight_next_day = 1
 
-    sunrise = bisection_method(midnight, noon, f, f(midnight), f(noon), 1/(24*60))
-    sunset = bisection_method(noon, midnight_next_day, f, f(noon), f(midnight_next_day), 1/(24*60))
+    print('Latitude: ' + str(round(latitude_deg)) + '° Longitude: ' + str(round(longitude_deg)) + '° ' + MONTHS[month-1] +' ' + str(day))
+    points=[]
+    ani = animation.FuncAnimation(
+            figure,
+            func = plot_shadow_day,
+            frames=np.linspace(0, 1, 24*6*2 + 1),
+            fargs=(month, day, latitude_rad, longitude_rad, ax, points),
+            init_func=init_function
+        )
 
-    # Convert fractional day times for sunrise and sunset into hours and minutes and 
-    # print formatted sunrise and sunset times in UTC.
-    hours = sunrise*24
-    hour = math.floor(hours)
-    minute = round((hours-hour)*60)
-    print('\nLatitude: ' + str(round(geom.radian2degree(latitude_rad),2)) + '° ')
-    print(MONTHS[month-1] +' '+ str(day))
-    print('Sunrise: '+str(hour).rjust(2,'0')+':'+str(minute).rjust(2,'0')+ ' UTC')
-    hours = sunset*24
-    hour = math.floor(hours)
-    minute = round((hours-hour)*60)
-    print('Sunset: '+str(hour).rjust(2,'0')+':'+str(minute).rjust(2,'0')+ ' UTC')
+    ani.save('lat'+str(round(latitude_deg))+'_long'+ str(round(longitude_deg))+MONTHS[month-1] + str(day)+'.gif', writer='pillow', fps=100) 
+
+def generate_shadow_hour_gifs_all_latitudes():
+    """
+    Generate and save GIF animations of shadow patterns throughout the year
+    at specific hours for multiple latitudes
+    """
+    figure, ax = plt.subplots()
+    minute = 0
+    for i in range(1,18): # 80°, 70°, ..., -70°, -80°
+        count = 0
+        for hour in [6, 8, 10, 12, 14, 16, 18]:
+            count += 1
+            latitude_deg = 90 - 10 * i
+            longitude_deg = 0
+            latitude_rad = geom.degree2radian(latitude_deg)
+            longitude_rad = geom.degree2radian(longitude_deg)
+            print('Latitude: ' + str(round(latitude_deg)) + '° Longitude: ' + str(round(longitude_deg)) + '° ' + f"{int(hour):02d}:{int(minute):02d}")
+            points=[]
+            ani = animation.FuncAnimation(
+                    figure,
+                    func = plot_shadow_hour,
+                    frames=[i for i in range(366)],
+                    fargs=(hour, minute, latitude_rad, longitude_rad, ax, points),
+                    init_func=init_function
+                )
+            
+            directory = 'shadow_evolution/lat'+str(round(latitude_deg))+'/fixed_hour/'
+            os.makedirs(directory, exist_ok=True)  # Create folder if it doesn't exist
+            ani.save(directory + str(count)+'_lat'+str(round(latitude_deg))+'_long'+ str(round(longitude_deg))+ f"_{int(hour):02d}_{int(minute):02d}" +'.gif', writer='pillow', fps=100) 
+
+def generate_shadow_gif_given_hour(latitude_deg, longitude_deg, hour, minute):
+    """
+    Generate and save a GIF animation showing the shadow pattern over a full year
+    at a specified hour and minute for a given geographic location.
+
+    Parameters:
+    - latitude_deg: Latitude in degrees.
+    - longitude_deg: Longitude in degrees.
+    - hour: Hour of the day (0-23) to visualize shadows.
+    - minute: Minute of the hour (0-59) to visualize shadows.
+    """
+
+    figure, ax = plt.subplots()
+    latitude_rad = geom.degree2radian(latitude_deg)
+    longitude_rad = geom.degree2radian(longitude_deg)
+
+    print('Latitude: ' + str(round(latitude_deg)) + '° Longitude: ' + str(round(longitude_deg)) + '° ' + f"{int(hour):02d}:{int(minute):02d}")
+    points=[]
+    ani = animation.FuncAnimation(
+            figure,
+            func = plot_shadow_hour,
+            frames=[i for i in range(366)],
+            fargs=(hour, minute, latitude_rad, longitude_rad, ax, points),
+            init_func=init_function
+        )
+
+    ani.save('lat'+str(round(latitude_deg))+'_long'+ str(round(longitude_deg))+ f"_{int(hour):02d}_{int(minute):02d}" +'.gif', writer='pillow', fps=100) 
 
 def plot_sunrise_and_sunset_times(latitude_rad):
     """
@@ -414,253 +595,142 @@ def plot_sunrise_and_sunset_times(latitude_rad):
     fig.tight_layout()
 
     plt.show()
-            
-def generate_shadow_gif_given_hour(latitude_deg, longitude_deg, hour, minute):
+ 
+def get_sunrise_and_sunset_time(latitude_rad, month, day):
     """
-    Generate and save a GIF animation showing the shadow pattern over a full year
-    at a specified hour and minute for a given geographic location.
+    Calculate and print the sunrise and sunset times (in UTC) for a given location and date.
 
     Parameters:
-    - latitude_deg: Latitude in degrees.
-    - longitude_deg: Longitude in degrees.
-    - hour: Hour of the day (0-23) to visualize shadows.
-    - minute: Minute of the hour (0-59) to visualize shadows.
-    """
-
-    figure, ax = plt.subplots()
-    latitude_rad = geom.degree2radian(latitude_deg)
-    longitude_rad = geom.degree2radian(longitude_deg)
-    
-
-    print('Latitude: ' + str(round(latitude_deg)) + '° Longitude: ' + str(round(longitude_deg)) + '° ' + f"{int(hour):02d}:{int(minute):02d}")
-    points=[]
-    ani = animation.FuncAnimation(
-            figure,
-            func = plot_shadow_hour,
-            frames=[i for i in range(366)],
-            fargs=(hour, minute, latitude_rad, longitude_rad, ax, points),
-            init_func=init_function
-        )
-
-    ani.save('lat'+str(round(latitude_deg))+'_long'+ str(round(longitude_deg))+ f"_{int(hour):02d}_{int(minute):02d}" +'.gif', writer='pillow', fps=100) 
-
-def generate_shadow_gif_given_date(latitude_deg, longitude_deg, month, day):
-    """
-    Generate and save a GIF animation showing the shadow pattern over a full day
-    (24 hours) at a specific geographic location and date.
-
-    Parameters:
-    - latitude_deg: Latitude in degrees.
-    - longitude_deg: Longitude in degrees.
+    - latitude_rad: Latitude of the location in radians.
     - month: Month of the year (1-12).
     - day: Day of the month.
+
+    Notes:
+    - The precision for the bisection method is set to 1 minute (1/(24*60)).
     """
-    figure, ax = plt.subplots()
-    latitude_rad = geom.degree2radian(latitude_deg)
-    longitude_rad = geom.degree2radian(longitude_deg)
+    # Convert the given date to a fractional day of the year
+    year_day = get_time_in_days(month, day, 0, 0)
+    # Define a function `f(t)` that represents the dot product between the
+    # position vector of the location at fractional time `year_day + t` and 
+    # the sun's vector projected onto the Earth's surface plane.
+    f = lambda t:  np.dot(np.array(position(latitude_rad, 0, year_day + t)),
+                            np.array((-math.cos(angle_sun_earth(year_day + t)), -math.sin(angle_sun_earth(year_day + t)), 0)))
     
+    # Use the bisection method to find:
+    #    * Sunrise time: root of f(t) between midnight and noon (0 to 0.5 fraction of day).
+    #    * Sunset time: root of f(t) between noon and next midnight (0.5 to 1 fraction of day).
+    midnight = 0
+    noon = 0.5 
+    midnight_next_day = 1
 
-    print('Latitude: ' + str(round(latitude_deg)) + '° Longitude: ' + str(round(longitude_deg)) + '° ' + MONTHS[month-1] +' ' + str(day))
-    points=[]
-    ani = animation.FuncAnimation(
-            figure,
-            func = plot_shadow_day,
-            frames=np.linspace(0, 1, 24*6*2 + 1),
-            fargs=(month, day, latitude_rad, longitude_rad, ax, points),
-            init_func=init_function
-        )
+    sunrise = bisection_method(midnight, noon, f, f(midnight), f(noon), 1/(24*60))
+    sunset = bisection_method(noon, midnight_next_day, f, f(noon), f(midnight_next_day), 1/(24*60))
 
-    ani.save('lat'+str(round(latitude_deg))+'_long'+ str(round(longitude_deg))+MONTHS[month-1] + str(day)+'.gif', writer='pillow', fps=100) 
-
-def generate_shadow_gifs_all_dates_all_latitudes():
-    """
-    Generate and save GIF animations of daily shadow patterns for multiple latitudes and selected dates.
-    """
-    figure, ax = plt.subplots()
-    dates = [(2,3), (3,20), (5,4), (6,21), (8,6), (9,22), (11,6), (12,21)] # Solstices, equinoxes, and days in between
-    for i in range(1,18): # 80°, 70°, ..., -70°, -80°
-        count = 0
-        for date in dates:
-            count += 1
-            latitude_deg = 90 - 10 * i
-            longitude_deg = 0
-            latitude_rad = geom.degree2radian(latitude_deg)
-            longitude_rad = geom.degree2radian(longitude_deg)
-            month = date[0]
-            day = date[1]
-            print('Latitude: ' + str(round(latitude_deg)) + '° Longitude: ' + str(round(longitude_deg)) + '° ' + MONTHS[month-1] +' ' + str(day))
-
-            points=[]
-            ani = animation.FuncAnimation(
-                    figure,
-                    func = plot_shadow_day,
-                    frames=np.linspace(0, 1, 24*6*2 + 1),
-                    fargs=(month, day, latitude_rad, longitude_rad, ax, points),
-                    init_func=init_function
-                )
-            directory = 'shadow_evolution/lat'+str(round(latitude_deg))+'/fixed_day/'
-            os.makedirs(directory, exist_ok=True)  # Create folder if it doesn't exist
-            ani.save(directory + str(count)+'_lat'+str(round(latitude_deg))+'_long'+ str(round(longitude_deg))+MONTHS[month-1] + str(day)+'.gif', writer='pillow', fps=100) 
-
-def generate_shadow_hour_gifs_all_latitudes():
-    """
-    Generate and save GIF animations of shadow patterns throughout the year
-    at specific hours for multiple latitudes
-    """
-    figure, ax = plt.subplots()
-    minute = 0
-    for i in range(1,18): # 80°, 70°, ..., -70°, -80°
-        count = 0
-        for hour in [6, 8, 10, 12, 14, 16, 18]:
-            count += 1
-            latitude_deg = 90 - 10 * i
-            longitude_deg = 0
-            latitude_rad = geom.degree2radian(latitude_deg)
-            longitude_rad = geom.degree2radian(longitude_deg)
-            print('Latitude: ' + str(round(latitude_deg)) + '° Longitude: ' + str(round(longitude_deg)) + '° ' + f"{int(hour):02d}:{int(minute):02d}")
-            points=[]
-            ani = animation.FuncAnimation(
-                    figure,
-                    func = plot_shadow_hour,
-                    frames=[i for i in range(366)],
-                    fargs=(hour, minute, latitude_rad, longitude_rad, ax, points),
-                    init_func=init_function
-                )
-            
-            directory = 'shadow_evolution/lat'+str(round(latitude_deg))+'/fixed_hour/'
-            os.makedirs(directory, exist_ok=True)  # Create folder if it doesn't exist
-            ani.save(directory + str(count)+'_lat'+str(round(latitude_deg))+'_long'+ str(round(longitude_deg))+ f"_{int(hour):02d}_{int(minute):02d}" +'.gif', writer='pillow', fps=100) 
-
-def get_location_in_which_sunrays_orthogonal(month, day, hour, minute):
-    t = get_time_in_days(month, day, hour, minute)
-    (latitude_deg, longitude_deg) = location_in_which_sunrays_orthogonal(t)
-    print(MONTHS[month-1] +' '+ str(day) + ' UTC '+str(hour).rjust(2,'0')+':'+str(minute).rjust(2,'0'))
-    print(f"Latitude: {latitude_deg:.2f}°, Longitude: {longitude_deg:.2f}°")
+    # Convert fractional day times for sunrise and sunset into hours and minutes and 
+    # print formatted sunrise and sunset times in UTC.
+    hours = sunrise*24
+    hour = math.floor(hours)
+    minute = round((hours-hour)*60)
+    print('\nLatitude: ' + str(round(geom.radian2degree(latitude_rad),2)) + '° ')
+    print(MONTHS[month-1] +' '+ str(day))
+    print('Sunrise: '+str(hour).rjust(2,'0')+':'+str(minute).rjust(2,'0')+ ' UTC')
+    hours = sunset*24
+    hour = math.floor(hours)
+    minute = round((hours-hour)*60)
+    print('Sunset: '+str(hour).rjust(2,'0')+':'+str(minute).rjust(2,'0')+ ' UTC')
 
 def generate_evolution_location_in_which_sunrays_orthogonal():
+    """
+    Generate and save an animated GIF showing how the location on Earth
+    where the Sun's rays are orthogonal (subsolar point) changes throughout the year.
+
+    The animation uses a Plate Carrée projection to display Earth's surface,
+    and updates hourly over an entire year (365 days × 24 hours = 8760 frames).
+    """
+
+    # Create a matplotlib figure and axis with a Plate Carrée map projection,
+    # which maps latitude and longitude directly to x and y coordinates.
     figure, ax = plt.subplots(subplot_kw={'projection': ccrs.PlateCarree()})
+
     ani = animation.FuncAnimation(
-            figure,
-            func = plot_evolution_location_in_which_sunrays_orthogonal,
-            frames=[i for i in range(365*24)],
-            fargs=(ax,),
-            init_func=init_function
-        )
-
-    ani.save('Orthogonal light.gif', writer='pillow', fps=1000) 
-
-def plot_evolution_location_in_which_sunrays_orthogonal(i, ax):
-    ax.clear()
-    # Customize Earth map
-    land = cfeature.NaturalEarthFeature(
-        'physical', 'land', '110m',
-        edgecolor='face',
-        facecolor='lightgreen'
+        figure,
+        func=plot_evolution_location_in_which_sunrays_orthogonal,
+        frames=[i for i in range(365 * 24)],  # One frame per hour for 365 days
+        fargs=(ax,),
+        init_func=init_function
     )
-    ax.add_feature(land)
-    ax.coastlines()
-    ax.add_feature(cfeature.OCEAN)         
-    ax.add_feature(cfeature.LAKES)
-    ax.add_feature(cfeature.BORDERS)       
-    ax.set_global()
+
+    # Save the resulting animation as a GIF file
+    ani.save('Orthogonal light.gif', writer='pillow', fps=1000)
           
-    
-    # Add parallels and meridians
-    ax.gridlines(draw_labels=True, linewidth=1, color='gray', alpha=0.5, linestyle='--')
-    # Tropic of Cancer
-    ax.plot([-180, 180], [EARTH_ROTATION_AXIS_ANGLE_DEG, EARTH_ROTATION_AXIS_ANGLE_DEG], transform=ccrs.PlateCarree(), linestyle='--', linewidth=1, color='gray')
+def get_location_in_which_sunrays_orthogonal(month, day, hour, minute):
+    """
+    Compute and print the location (latitude and longitude) on Earth where the Sun's rays
+    are orthogonal at a specific date and time in UTC.
 
-    # Arctic Circle
-    ax.plot([-180, 180], [90-EARTH_ROTATION_AXIS_ANGLE_DEG, 90-EARTH_ROTATION_AXIS_ANGLE_DEG], transform=ccrs.PlateCarree(), linestyle='--', linewidth=1, color='gray')
-    
-    # Tropic of Capricorn
-    ax.plot([-180, 180], [-EARTH_ROTATION_AXIS_ANGLE_DEG, -EARTH_ROTATION_AXIS_ANGLE_DEG], transform=ccrs.PlateCarree(), linestyle='--', linewidth=1, color='gray')
+    Parameters:
+        month (int): Month of the year (1–12)
+        day (int): Day of the month 
+        hour (int): Hour in 24-hour format (0–23)
+        minute (int): Minute (0–59)
+    """
 
-    # Antarctic Circle
-    ax.plot([-180, 180], [-90+EARTH_ROTATION_AXIS_ANGLE_DEG, -90+EARTH_ROTATION_AXIS_ANGLE_DEG], transform=ccrs.PlateCarree(), linestyle='--', linewidth=1, color='gray')
+    # Convert the given date and time into a continuous time value `t` in days
+    t = get_time_in_days(month, day, hour, minute)
 
+    # Use the computed time to get the latitude and longitude where the sunrays are orthogonal
+    (latitude_deg, longitude_deg) = location_in_which_sunrays_orthogonal(t)
 
-    day = i//24
-    hour = i%24
-
-    (latitude_deg, longitude_deg) = location_in_which_sunrays_orthogonal(day+ hour/24)
-    ax.plot(longitude_deg, latitude_deg, 'ro', transform=ccrs.Geodetic())
-
-    date = datetime(2025, 1, 1) + timedelta(days= day)
-    month, day = date.month, date.day
-
-    date_label = MONTHS[month-1] + ' ' + str(day) + ' UTC '+str(hour).rjust(2,'0')+':'+str(0).rjust(2,'0') + '\n'
-    latitude_label = "Latitud: " + f"{latitude_deg:.2f}°".rjust(7)
-    longitude_label = " Longitude: " + f"{longitude_deg:.2f}°".rjust(9)
-    plt.title(date_label+latitude_label+longitude_label)
-
-def location_in_which_sunrays_orthogonal(t):
-    # Compute the angle between the Earth and the Sun. This angle is defined such that:
-    #   - At the summer solstice (June 21), the angle is 0 radians.
-    #   - At the autumn equinox, the angle is π/2 radians (90 degrees).
-    angle_sun = angle_sun_earth(t)
-
-    # Given the Earth-Sun angle, construct the unit vector representing sunlight direction,
-    # but in the direction Earth to Sun. The sun ray lies in the XY-plane and is normal to Earth's surface
-    (x0, y0, z0) = np.array((math.cos(angle_sun), math.sin(angle_sun), 0))
-
-    #Rotate the resulting point over the Y axis to account for the tilt of Earth's rotation axis
-    (x1, y1, z1) = geom.rot_fix_y(EARTH_ROTATION_AXIS_ANGLE_RAD, x0, y0, z0)
-    
-    # Consider the plane z=z1 and get the polar coordinates of the point (x1,y1)
-    (r0, alpha0) = geom.cartesian2polar(x1,y1)
-
-    # Rotate the point (x1, y1) over the Z axis an angle which depends on the time t
-    (x2, y2) = geom.polar2cartesian(r0, alpha0 - angle_rotation_earth(t))
-
-    # Transform cartesian coordinates into spherical coordinates (latitude and longitud)
-    (r, latitude_rad, longitude_rad) = geom.cartesian2spherical(x2, y2, z1)
-    return (geom.radian2degree(latitude_rad), geom.radian2degree(longitude_rad))
+    # Print the results
+    print(MONTHS[month - 1] + ' ' + str(day) + ' UTC ' + str(hour).rjust(2, '0') + ':' + str(minute).rjust(2, '0'))
+    print(f"Latitude: {latitude_deg:.2f}°, Longitude: {longitude_deg:.2f}°")
 
 
-if __name__=="__main__":
-    
 
-    mode = int(input('1.- Generate sun trajectory and shadow evolution during a daylength in informative latitudes for solstices, equinoxes, and specific days in between \n' +\
-                 '2.- Generate sun trajectory and shadow evolution during a given day in a specific location\n'+\
-                 '3.- Generate sun and shadow evolution throughout a year in a set of informative hours and latitudes \n'+\
-                 '4.- Generate sun and shadow evolution throughout a year in a given time of the day and a specific location\n'+\
-                 '5.- Plot sunrise and sunset times during the year for a given latitude\n'+\
-                 '6.- Get sunrise and sunset times of a given day for a given latitude\n'+\
-                 '7.- Generate the evolution of the point where the sunrays are orthogonal to the Earth\'s surface throughout a year\n'+\
-                 '8.- Get the location where the sunrays are orthogonal to the Earth\'s surface in a given date and time\n'+\
-                 'Select funcionality: '))
+
+if __name__ == "__main__":
+    mode = int(input(
+        "Select a functionality by entering its corresponding number:\n"
+        "1. Generate sun trajectory and shadow evolution during the day for solstices, equinoxes, and key in-between dates at informative latitudes.\n"
+        "2. Generate sun trajectory and shadow evolution on a specific day at a given location.\n"
+        "3. Generate sun and shadow evolution throughout the year at selected hours and informative latitudes.\n"
+        "4. Generate sun and shadow evolution throughout the year at a specific time of day and location.\n"
+        "5. Plot sunrise and sunset times over the year for a given latitude.\n"
+        "6. Get sunrise and sunset times on a specific day at a given latitude.\n"
+        "7. Generate the annual evolution of the location where sunrays are orthogonal to Earth’s surface (subsolar point).\n"
+        "8. Get the location where sunrays are orthogonal to Earth’s surface for a specific date and time.\n"
+        "Enter your selection (1–8): "
+    ))
+
     if mode == 1:
         generate_shadow_gifs_all_dates_all_latitudes()
     elif mode == 2:
-        latitude_deg = float(input('Insert latitude (in degrees) as a decimal number (e.g. 40.4170): '))
-        longitude_deg = float(input('Insert longitude (in degrees) as a decimal number (e.g. -3.7034): '))
-        month = int(input('Insert the month as a number (e.g. January - 1, February - 2 ...): '))
-        day = int(input('Insert the day as a number: '))
+        latitude_deg = float(input("Enter the latitude (in decimal degrees, e.g., 40.4170): "))
+        longitude_deg = float(input("Enter the longitude (in decimal degrees, e.g., -3.7034): "))
+        month = int(input("Enter the month as a number (e.g., January = 1): "))
+        day = int(input("Enter the day of the month: "))
         generate_shadow_gif_given_date(latitude_deg, longitude_deg, month, day)
     elif mode == 3:
         generate_shadow_hour_gifs_all_latitudes()
     elif mode == 4:
-        latitude_deg = float(input('Insert latitude (in degrees) as a decimal number (e.g. 40.4170): '))
-        longitude_deg = float(input('Insert longitude (in degrees) as a decimal number (e.g. -3.7034): '))
-        hour = int(input('Insert the hour of the day as an integer from 0 to 23: '))
-        minute = int(input('Insert the minute in that hour as an integer from 0 to 59: '))
+        latitude_deg = float(input("Enter the latitude (in decimal degrees, e.g., 40.4170): "))
+        longitude_deg = float(input("Enter the longitude (in decimal degrees, e.g., -3.7034): "))
+        hour = int(input("Enter the hour of the day (0–23): "))
+        minute = int(input("Enter the minute (0–59): "))
         generate_shadow_gif_given_hour(latitude_deg, longitude_deg, hour, minute)
     elif mode == 5:
-        latitude_deg = float(input('Insert latitude (in degrees) as a decimal number (e.g. 40.4170): '))
+        latitude_deg = float(input("Enter the latitude (in decimal degrees, e.g., 40.4170): "))
         plot_sunrise_and_sunset_times(geom.degree2radian(latitude_deg))
     elif mode == 6:
-        latitude_deg = float(input('Insert latitude (in degrees) as a decimal number (e.g. 40.4170): '))
-        month = int(input('Insert the month as a number (e.g. January - 1, February - 2 ...): '))
-        day = int(input('Insert the day as a number: '))
+        latitude_deg = float(input("Enter the latitude (in decimal degrees, e.g., 40.4170): "))
+        month = int(input("Enter the month as a number (e.g., January = 1): "))
+        day = int(input("Enter the day of the month: "))
         get_sunrise_and_sunset_time(geom.degree2radian(latitude_deg), month, day)
     elif mode == 7:
         generate_evolution_location_in_which_sunrays_orthogonal()
     elif mode == 8:
-        month = int(input('Insert the month as a number (e.g. January - 1, February - 2 ...): '))
-        day = int(input('Insert the day as a number: '))
-        hour = int(input('Insert the hour of the day as an integer from 0 to 23: '))
-        minute = int(input('Insert the minute in that hour as an integer from 0 to 59: '))
+        month = int(input("Enter the month as a number (e.g., January = 1): "))
+        day = int(input("Enter the day of the month: "))
+        hour = int(input("Enter the hour of the day (0–23): "))
+        minute = int(input("Enter the minute (0–59): "))
         get_location_in_which_sunrays_orthogonal(month, day, hour, minute)
-    
-        
