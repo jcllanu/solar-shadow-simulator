@@ -12,6 +12,7 @@ This Python project models the **sun’s path** and the **shadows it casts** usi
 - Sunrise/sunset time computation
 - Animated visualizations across latitudes and key solar dates
 - Solar event markers (equinoxes, solstices)
+- Subsolar point calculation in each time, i.e., position of the Earth in which the sunrays are orthogonal to the surface
 
 ---
 
@@ -27,11 +28,13 @@ This Python project models the **sun’s path** and the **shadows it casts** usi
 ## 🖥️ How to Use
 
 Run the main script and choose a mode:
-1. Shadow evolution for solstices, equinoxes, and in-between days across latitudes
-2. Shadow evolution for a specific date and location
-3. Yearly shadow evolution across latitudes at fixed hours
-4. Yearly shadow evolution for a specific location and fixed time
-5. Sunrise and sunset chart over the year for a given latitude
-6. Sunrise and sunset time for a given day and latitude
+1. Generate sun trajectory and shadow evolution during the day for solstices, equinoxes, and key in-between dates at informative latitudes
+2. Generate sun trajectory and shadow evolution on a specific day at a given location
+3. Generate sun and shadow evolution throughout the year at selected hours and informative latitudes
+4. Generate sun and shadow evolution throughout the year at a specific time of day and location
+5. Plot sunrise and sunset times over the year for a given latitude
+6. Get sunrise and sunset times on a specific day at a given latitude
+7. Generate the annual evolution of the location where sunrays are orthogonal to Earth’s surface (subsolar point)
+8. Get the location where sunrays are orthogonal to Earth’s surface for a specific date and time
 
 
