@@ -16,12 +16,13 @@ This Python project models the **sun’s path** and the **shadows it casts** usi
 
 ---
 
-## 🌐 Coordinate System and Geometry
+## 📐 Coordinate System and Geometry
 
 - 🌍 Earth's daily rotation is calculated around its **tilted axis**
 - ☀️ Sun’s position calculated using basic orbital dynamics
 - 🧭 Shadows projected on a local East-North plane
 - 🧮 Uses 3D spherical and cartesian coordinate transformations
+- 🌐 Includes GeoGebra 3D demo of the model
 
 ---
 
