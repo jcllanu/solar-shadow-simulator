@@ -48,7 +48,7 @@ def angle_sun_earth(t):
     Returns:
     - float: Earth's orbital angle in radians, where 0 corresponds to the reference date (June 21st, summer solstice)
     """
-    return (t-(datetime(2025, 6, 21) - datetime(2025, 1, 1)).days) *2*math.pi/365.25 
+    return (t-(datetime(2025, 6, 21) - datetime(2025, 1, 1)).days) *2*math.pi/365
 
 def angle_rotation_earth(t): 
     """
@@ -61,7 +61,7 @@ def angle_rotation_earth(t):
     Returns:
     - float: Earth's rotation angle in radians, combining daily rotation and seasonal orbital adjustment.
     """
-    return 2*math.pi*t+ math.pi + (t-(datetime(2025, 6, 21) - datetime(2025, 1, 1)).days) *2*math.pi/365.25
+    return 2*math.pi*t+ math.pi + (t-(datetime(2025, 6, 21) - datetime(2025, 1, 1)).days) *2*math.pi/365
 
 def location_in_which_sunrays_orthogonal(t):
     """
